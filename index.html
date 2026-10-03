@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>نظام الشرطة</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--navy:#0b1a3a;--navy2:#10285a;--line:#1d3a7a;--tx:#e8eefc;--mut:#8da2cf;--ok:#2fbf71;--bad:#e5484d;--warn:#f5a524}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at top,#0b1a3a 0,#05070d 60%);color:var(--tx);font-family:Tahoma,"Segoe UI",Arial,sans-serif;min-height:100vh}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:14px 16px;background:linear-gradient(90deg,#000,var(--navy));border-bottom:2px solid var(--line)}
+h1{margin:0;font-size:20px}h1 span{color:#4f8cff}h2{margin:0 0 6px;font-size:18px}h3{margin:14px 0 4px}
+select,input{background:#000;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;max-width:100%}
+nav{display:flex;gap:6px;padding:10px 16px;overflow-x:auto}nav button{flex:0 0 auto}
+button{background:var(--navy2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+button:hover{background:#17399a}button.on{background:#2557d6}
+button.bad{background:#5a1418;border-color:#a22}button.warn{background:#5a3d08;border-color:#a70}button.ok{background:#0e4a2a;border-color:#2a7}
+main{padding:0 16px 30px;max-width:1100px;margin:auto}
+.card{background:linear-gradient(160deg,var(--navy),#060b18);border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px}.grid .card{margin:0}
+.badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;border:1px solid var(--line);background:#000}
+.owner{color:#ffd24d;border-color:#a80}
+.unit{font-family:monospace;color:#4f8cff;font-weight:bold}
+.s-active{color:var(--ok)}.s-susp{color:var(--warn)}.s-dis{color:var(--bad)}.s-jail{color:#c084fc}
+.mut{color:var(--mut);font-size:13px}.hide{display:none}
+.msg{padding:10px;border-radius:10px;background:#3a0f12;border:1px solid #a22;margin:10px 0}
+#modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:9;padding:16px}
+#modal.hide{display:none}
+.box{background:var(--navy);border:1px solid var(--line);border-radius:14px;padding:16px;width:min(420px,100%);display:flex;flex-direction:column;gap:10px}
+.box input,.box textarea{width:100%;background:#000;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit}
+.seg{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}.seg .mut{min-width:70px}
+.seg button.sel{font-weight:bold;box-shadow:0 0 0 2px #fff6}
+</style>
+</head>
+<body>
+<header><h1>🛡️ <span>وزارة الداخلية</span> · نظام الشرطة</h1><div id="who" class="row"></div></header>
+<nav>
+  <button data-t="off" class="on">👮 الأفراد</button><button data-t="wan">🚨 المطلوبين</button><button data-t="rep">📨 التقارير</button><button data-t="pos">🏛️ المناصب</button>
+  <button data-t="fbi">🔵 قطاع FBI</button><button data-t="ssf">🟢 قطاع SSF</button>
+</nav>
+<main>
+  <div id="msg"></div>
+  <section id="off"><div id="f_x"></div><div id="l_x"></div></section>
+  <section id="wan" class="hide"><div id="wf"></div><div id="wl"></div></section>
+  <section id="rep" class="hide"><div id="l_rep"></div></section>
+  <section id="pos" class="hide"><div id="l_pos"></div><div id="f_own"></div><div id="l_own"></div></section>
+  <section id="fbi" class="hide"><div id="f_FBI"></div><div id="l_FBI"></div></section>
+  <section id="ssf" class="hide"><div id="f_SSF"></div><div id="l_SSF"></div></section>
+</main>
+<div id="modal" class="hide"></div>
+<script>
+const RANKS=["جندي","جندي أول","عريف","وكيل رقيب","رقيب","رقيب أول","رئيس رقباء","ملازم","ملازم أول","نقيب","رائد","مقدم","عقيد","عميد","لواء","فريق","وزير"];
+const BRIG=13;
+const POS=["بدون منصب","وزير الداخلية","قائد الشرطة","نائب قائد الشرطة","قائد القطاع","نائب قائد القطاع","مستشار القطاع"];
+const SEC={FBI:{n:"قطاع FBI",L:"F",c:"#4f8cff"},SSF:{n:"قطاع SSF",L:"S",c:"#2dd4bf"}};
+const ST={active:["على رأس العمل","s-active"],susp:["موقوف الخدمات","s-susp"],dis:["مفصول","s-dis"],jail:["مسجون","s-jail"]};
+let db,user,V,myId="",S={off:[],wan:[],rep:[],owners:[]},LINK={},HITS={},lastOwn=null,ready=false;
+const $=id=>document.getElementById(id);
+const E=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const O=id=>S.off.find(o=>o.id===id),Wn=id=>S.wan.find(o=>o.id===id);
+const active=o=>o.st==="active";
+const code=o=>o.sector?SEC[o.sector].L+o.unit:"UNIT-"+o.unit;
+const A=()=>({own:!!V&&(V.isOwner||S.owners.includes(myId)),o:myId?S.off.find(x=>x.id===myId):undefined});
+const SMAX=9; // أعلى رتبة داخل القطاعات: نقيب
+const lead=o=>!!o.sector&&o.pos>=4;
+const rk=o=>lead(o)?POS[o.pos]:RANKS[o.rank];
+const maxR=a=>a.own?16:({1:16,2:15,3:14,4:13,5:12})[a.o?.pos]??-1;
+
+function canTarget(a,t){
+  if(a.own)return true;
+  const o=a.o;if(!o||!active(o)||o.id===t.id||t.pos===1)return false;
+  switch(o.pos){
+    case 1:return true;
+    case 2:return t.pos!==2;
+    case 3:return ![2,3].includes(t.pos);
+    case 4:return !!o.sector&&t.sector===o.sector&&t.pos!==4;
+    case 5:return !!o.sector&&t.sector===o.sector&&[0,6].includes(t.pos);
+    case 6:return false;
+  }
+  return o.rank>=BRIG&&t.pos===0&&!t.sector&&o.rank>t.rank;
+}
+const canRank=(a,t)=>canTarget(a,t)&&(a.own||[1,2,3,4,5].includes(a.o.pos));
+const canJail=(a,t)=>canTarget(a,t)&&(a.own||[1,2].includes(a.o.pos));
+const canAct=a=>a.own||(a.o&&active(a.o));
+const canAny=a=>a.own||(a.o&&active(a.o)&&(a.o.pos>0&&a.o.pos<6||a.o.rank>=BRIG));
+function allowed(a,t){
+  if(!canTarget(a,t))return[];
+  if(a.own)return[0,1,2,3,4,5,6];
+  switch(a.o.pos){case 1:return[0,2,3,4,5,6];case 2:return[0,3,4,5,6];case 4:return t.sector===a.o.sector?[0,5,6]:[]}
+  return[];
+}
+function msg(t){$("msg").innerHTML=t?`<div class="msg">${E(t)}</div>`:"";if(t)setTimeout(()=>$("msg").innerHTML="",4000)}
+function ok(){if(canAct(A()))return true;msg("لا تملك صلاحية: حسابك غير مسجّل ضمن الشرطة أو غير فعّال.");return false}
+function dlg(title,o={}){return new Promise(res=>{
+  const m=$("modal"),t=o.input||o.area;m.className="";
+  m.innerHTML=`<div class="box"><b>${E(title)}</b>${o.input?`<input id="dv" value="${E(o.val||"")}">`:""}${o.area?`<textarea id="dv" rows="4">${E(o.val||"")}</textarea>`:""}<div class="row"><button class="ok" id="dy">تأكيد</button><button id="dn">إلغاء</button></div></div>`;
+  const f=v=>{m.className="hide";m.innerHTML="";res(v)};
+  $("dy").onclick=()=>f(t?$("dv").value:true);$("dn").onclick=()=>f(null);
+  if($("dv"))$("dv").focus();
+})}
+const put=(p,d)=>db.doc(p).update(d).catch(e=>msg("تعذّر الحفظ ("+(e.code||"")+")"));
+
+function renderAll(){
+  if(!ready)return;
+  const a=A();
+  $("who").innerHTML=`<b>${E(V.name||"زائر")}</b><button onclick="logout()">🚪 تبديل</button>${a.own?`<span class="badge owner">👑 OWNER</span>`:""}${a.o?`<span class="badge">${rk(a.o)}</span><span class="badge unit">${code(a.o)}</span>${a.o.pos&&!lead(a.o)?`<span class="badge">${POS[a.o.pos]}</span>`:""}<span class="${ST[a.o.st][1]}">${ST[a.o.st][0]}</span>`:(a.own?"":`<span class="mut">غير مسجّل ضمن الشرطة (اطلاع فقط)</span>`)}`;
+  if(a.own!==lastOwn){lastOwn=a.own;renderForms()}
+  renderOff();renderWan();renderRep();renderPos();renderSec("FBI");renderSec("SSF");renderOwners();
+}
+function card(o,a){
+  const t=canTarget(a,o),r=canRank(a,o),al=allowed(a,o),i=`'${o.id}'`;
+  const B=(c,f,l)=>`<button class="${c}" onclick="${f}">${l}</button>`;
+  const self=a.o&&a.o.id===o.id;
+  return `<div class="card" ${o.sector?`style="border-top:3px solid ${SEC[o.sector].c}"`:""}>
+  <div class="row" style="justify-content:space-between"><b>${E(o.name)}</b><span class="badge unit">${code(o)}</span></div>
+  <div class="row" style="margin:8px 0"><span class="badge">${rk(o)}</span>${o.pos&&!lead(o)?`<span class="badge">${POS[o.pos]}</span>`:""}<span class="${ST[o.st][1]}">${ST[o.st][0]}</span>${o.uid?`<span class="mut">🔗 مربوط بحساب</span>`:""}</div>
+  <div class="row">
+  ${t||self?B("",`rename(${i})`,"✏️ الاسم"):""}
+  ${r?B("",`promote(${i},1)`,"⬆️ ترقية")+B("",`promote(${i},-1)`,"⬇️ تخفيض")+B("",`transfer(${i})`,"🔁 نقل يونت"):""}
+  ${t&&o.st==="active"?B("warn",`setSt(${i},'susp')`,"⏸ توقيف خدمات"):""}
+  ${t&&o.st==="susp"?B("ok",`setSt(${i},'active')`,"▶ رفع التوقيف"):""}
+  ${t&&o.st!=="dis"?B("bad",`setSt(${i},'dis')`,"🚫 فصل"):""}
+  ${t&&o.st==="dis"&&(a.own||a.o.pos<3)?B("ok",`setSt(${i},'active')`,"إعادة"):""}
+  ${canJail(a,o)&&o.st!=="jail"?B("bad",`setSt(${i},'jail')`,"⛓ سجن"):""}
+  ${canJail(a,o)&&o.st==="jail"?B("ok",`setSt(${i},'active')`,"إفراج"):""}
+  ${al.length&&o.st==="active"?`<select onchange="setPos(${i},this.value)"><option value="">🏷 تعيين منصب</option>${al.map(p=>`<option value="${p}">${p?POS[p]:"إزالة المنصب"}</option>`).join("")}</select>`:""}
+  ${t&&(a.own||[1,2,3].includes(a.o.pos))?`<select onchange="setSec(${i},this.value)"><option value="">🔀 نقل لقطاع</option><option value="-">بدون قطاع</option><option>FBI</option><option>SSF</option></select>`:""}
+  ${a.own?B("bad",`delOff(${i})`,"🗑"):""}
+  </div></div>`;
+}
+function form(sec){
+  const k=sec||"x";
+  return `<div class="card"><b>➕ إضافة فرد${sec?" إلى "+SEC[sec].n:""}</b> <span class="mut">(للملّاك فقط)</span>
+  <div class="row" style="margin-top:8px"><input id="n_${k}" placeholder="الاسم" oninput="sq('${k}')"><select id="r_${k}">${(sec?RANKS.slice(0,SMAX+1):RANKS).map((r,i)=>`<option value="${i}">${r}</option>`).join("")}</select>
+  <input id="u_${k}" type="number" min="1" max="200" value="1" style="width:80px" title="رقم اليونت"><button class="ok" onclick="addOff('${sec}')">إضافة</button></div><div id="h_${k}" class="row" style="margin-top:6px"></div></div>`;
+}
+function renderForms(){
+  const a=A();
+  ["","FBI","SSF"].forEach(s=>$("f_"+(s||"x")).innerHTML=a.own?form(s):"");
+  $("f_own").innerHTML=V.isOwner?`<div class="card"><b>👑 منح رتبة OWNER لفرد</b><div class="mut">الملّاك فقط يضيفون الأسماء واليونتات. ابحث عن فرد مضاف سابقاً.</div><div class="row" style="margin-top:8px"><input id="n_own" placeholder="ابحث عن فرد بالاسم..." oninput="sq('own')"></div><div id="h_own" class="row" style="margin-top:6px"></div></div>`:"";
+  $("wf").innerHTML=`<div class="card"><b>➕ إضافة مطلوب</b><div class="row" style="margin-top:8px"><input id="wn" placeholder="اسم المطلوب"><input id="wc" placeholder="التهمة"><button class="ok" onclick="addWan()">إضافة</button></div></div>`;
+}
+function sq(k){if(k!=="own")return;
+  const v=$("n_"+k).value.trim();LINK[k]="";const h=$("h_"+k);
+  if(v.length<2){h.innerHTML="";return}
+  user.search(v).then(r=>{HITS[k]=r;h.innerHTML=r.slice(0,6).map((p,i)=>`<button onclick="pick('${k}',${i})">👤 ${E(p.name)}</button>`).join("")||`<span class="mut">لا نتائج</span>`}).catch(()=>{});
+}
+function pick(k,i){
+  const p=HITS[k][i];
+  if(k==="own"){put0("cfg/owners",{ids:[...new Set([...S.owners,p.id])]});$("n_own").value="";$("h_own").innerHTML="";return}
+  $("n_"+k).value=p.name;LINK[k]=p.id;$("h_"+k).innerHTML=`<span class="mut">🔗 سيُربط بحساب ${E(p.name)}</span>`;
+}
+const put0=(p,d)=>db.doc(p).set(d).catch(e=>msg("تعذّر الحفظ ("+(e.code||")")));
+function renderOff(){
+  const a=A();
+  $("l_x").innerHTML=`<div class="grid">`+(S.off.slice().sort((x,y)=>y.rank-x.rank).map(o=>card(o,a)).join("")||`<span class="mut">لا يوجد أفراد بعد${a.own?" — أضف أول فرد من الأعلى":""}</span>`)+`</div><p class="mut">أكواد اليونتات: عام UNIT-1…200 · FBI تبدأ بـ F (F1…F200) · SSF تبدأ بـ S (S1…S200).</p>`;
+}
+function renderSec(sec){
+  const a=A(),S_=SEC[sec],el=$("l_"+sec),m=S.off.filter(o=>o.sector===sec);
+  if(!(a.own||(a.o&&(a.o.sector===sec||[1,2,3].includes(a.o.pos))))){el.innerHTML=`<div class="card">🔒 هذه النافذة خاصة بمنسوبي ${S_.n} والقيادة العليا.</div>`;return}
+  const lead=m.filter(o=>o.pos>=4).sort((x,y)=>x.pos-y.pos),rest=m.filter(o=>o.pos<4);
+  const slot=p=>m.some(o=>o.pos===p)?"":`<div class="card mut">${POS[p]}: شاغر</div>`;
+  el.innerHTML=`<div class="card" style="border-top:3px solid ${S_.c}"><h2 style="color:${S_.c}">${S_.n}</h2><span class="mut">المنسوبين: ${m.length} · غير فعّالين: ${m.filter(o=>!active(o)).length}</span></div>
+  <h3>القيادة</h3><div class="grid">${lead.map(o=>card(o,a)).join("")}${slot(4)}${slot(5)}${slot(6)}</div>
+  <h3>المنسوبين</h3><div class="grid">${rest.map(o=>card(o,a)).join("")||`<span class="mut">لا يوجد</span>`}</div>`;
+}
+function addOff(sec){
+  const a=A();if(!a.own)return msg("الإضافة للملّاك فقط.");
+  const k=sec||"x",n=$("n_"+k).value.trim();if(!n)return msg("اكتب الاسم");
+  db.collection("off").add({name:n,rank:+$("r_"+k).value,sector:sec,unit:Math.min(200,Math.max(1,+$("u_"+k).value||1)),pos:0,st:"active",uid:LINK[k]||""})
+   .then(()=>{$("n_"+k).value="";LINK[k]="";$("h_"+k).innerHTML=""}).catch(e=>msg("تعذّر الحفظ ("+(e.code||"")+")"));
+}
+async function delOff(id){if(A().own&&await dlg("حذف هذا الفرد نهائياً؟"))db.doc("off/"+id).delete().catch(()=>msg("تعذّر الحذف"))}
+async function rename(id){if(!ok())return;const o=O(id),n=await dlg("الاسم الجديد",{input:1,val:o.name});if(n&&n.trim())put("off/"+id,{name:n.trim()})}
+function promote(id,d){if(!ok())return;const o=O(id),a=A(),nr=o.rank+d;if(nr<0||nr>=RANKS.length)return;
+  if(o.sector&&nr>SMAX)return msg("الحد الأعلى للترقية داخل القطاعات هو نقيب.");if(nr>maxR(a))return msg("لا يمكنك منح رتبة أعلى من صلاحيتك.");put("off/"+id,{rank:nr})}
+async function transfer(id){if(!ok())return;const o=O(id),r=await dlg("رقم اليونت الجديد (1 - 200)",{input:1,val:o.unit});if(r===null)return;const n=parseInt(r);if(n>=1&&n<=200)put("off/"+id,{unit:n});else msg("اليونت من 1 إلى 200 فقط")}
+async function setSt(id,s){if(!ok())return;const o=O(id);if(s==="dis"&&!await dlg("تأكيد فصل "+o.name+"؟"))return;put("off/"+id,s==="active"?{st:s}:{st:s,pos:0})}
+function setPos(id,v){if(v==="")return;v=+v;if(!ok())return;const o=O(id),a=A();
+  if(!allowed(a,o).includes(v))return msg("لا تملك صلاحية هذا التعيين.");
+  if(v>=4&&!o.sector)return msg("انقله لقطاع أولاً.");
+  S.off.forEach(x=>{if(x.id!==id&&v>0&&((v<=3&&x.pos===v)||([4,5].includes(v)&&x.pos===v&&x.sector===o.sector)))put("off/"+x.id,{pos:0})});
+  put("off/"+id,{pos:v,rank:o.sector?Math.min(o.rank,SMAX):o.rank})}
+function setSec(id,v){if(!v||!ok())return;const o=O(id);put("off/"+id,{sector:v==="-"?"":v,pos:o.pos>=4?0:o.pos,rank:v==="-"?o.rank:Math.min(o.rank,SMAX)})}
+
+const sig=w=>`${+!!w.arrested}${+!!w.verdict}${+!!w.exec}|${w.report||""}`;
+const stBadges=w=>`<span class="badge ${w.arrested?"s-active":"s-dis"}">${w.arrested?"✔ تم القبض":"✖ لم يُقبض"}</span><span class="badge ${w.verdict?"s-active":"s-susp"}">${w.verdict?"⚖️ صدر الحكم":"⏳ لم يصدر الحكم"}</span><span class="badge ${w.exec?"s-active":"s-susp"}">${w.exec?"🔒 نُفّذ الحكم":"⏳ لم يُنفّذ"}</span>`;
+function renderWan(){
+  const a=A(),can=canAct(a);
+  const seg=(w,f,l,y,n)=>`<div class="seg"><span class="mut">${l}</span><button class="${w[f]?"ok sel":""}" onclick="wSet('${w.id}','${f}',true)">${y}</button><button class="${!w[f]?"bad sel":""}" onclick="wSet('${w.id}','${f}',false)">${n}</button></div>`;
+  $("wl").innerHTML=`<div class="grid">`+(S.wan.map(w=>{const i=`'${w.id}'`,same=w.sentSig===sig(w);return `<div class="card">
+   <div class="row" style="justify-content:space-between"><b>${E(w.name)}</b><span class="badge">${E(w.crime)}</span></div>
+   <div style="margin:8px 0">${can?seg(w,"arrested","القبض","✔ تم القبض عليه","✖ لم يتم القبض")+seg(w,"verdict","الحكم","⚖️ صدر الحكم (العدل)","⏳ لم يصدر الحكم")+seg(w,"exec","التنفيذ","🔒 نُفّذ الحكم","⏳ لم يُنفّذ"):`<div class="row">${stBadges(w)}</div>`}</div>
+   ${can?`<div class="row"><button onclick="wRename(${i})">✏️ تعديل الاسم</button><button onclick="wReport(${i})">📝 ${w.report?"تعديل":"كتابة"} الملخص</button>${canAny(a)?`<button class="bad" onclick="wDel(${i})">🗑 حذف</button>`:""}</div>`:""}
+   <div style="margin-top:10px;padding:10px;border-radius:10px;background:#000;border:1px solid var(--line)"><b>📋 ملخص: ما الذي فعله؟</b><div class="mut" style="margin-top:4px;white-space:pre-wrap">${w.report?E(w.report):"لم يُكتب ملخص بعد"}</div>${w.by?`<div class="mut" style="margin-top:4px">بقلم: ${E(w.by)}</div>`:""}</div>
+   ${can?`<div style="margin-top:10px">${same?`<button disabled style="width:100%;opacity:.7">✔ تم إرسال التقرير للرتب العليا والمناصب</button>`:`<button class="ok" style="width:100%" onclick="sendRep(${i})">📨 تأكيد الإرسال</button>${w.sentSig?`<div class="mut">يوجد تعديلات بعد آخر إرسال</div>`:""}`}</div>`:(w.sentSig?`<div class="mut" style="margin-top:8px">📨 تم إرسال التقرير</div>`:"")}
+   </div>`}).join("")||`<p class="mut">لا يوجد مطلوبين</p>`)+"</div>";
+}
+function addWan(){if(!ok())return;const n=$("wn").value.trim();if(!n)return msg("اكتب الاسم");
+  db.collection("wan").add({name:n,crime:$("wc").value.trim()||"غير محدد",arrested:false,by:"",report:"",verdict:false,exec:false}).then(()=>{$("wn").value="";$("wc").value=""}).catch(e=>msg("تعذّر الحفظ ("+(e.code||"")+")"))}
+async function wRename(id){if(!ok())return;const w=Wn(id),n=await dlg("الاسم الجديد",{input:1,val:w.name});if(n&&n.trim())put("wan/"+id,{name:n.trim()})}
+async function wReport(id){if(!ok())return;const w=Wn(id),r=await dlg("ملخص: ما الذي فعله المجرم؟",{area:1,val:w.report||""});if(r!==null)put("wan/"+id,{report:r.trim(),by:V.name||""})}
+function wSet(id,f,v){if(!ok())return;
+  const d={[f]:v};
+  if(f==="exec"&&v){d.verdict=true;d.arrested=true}
+  if(f==="verdict"){if(v)d.arrested=true;else d.exec=false}
+  if(f==="arrested"&&!v){d.verdict=false;d.exec=false}
+  put("wan/"+id,d)}
+async function wDel(id){if(ok()&&await dlg("حذف المطلوب؟"))db.doc("wan/"+id).delete().catch(()=>msg("تعذّر الحذف"))}
+
+async function sendRep(id){
+  if(!ok())return;const w=Wn(id);
+  if(!w.report||!w.report.trim())return msg("اكتب ملخص ما فعله المجرم أولاً.");
+  if(!await dlg("تأكيد إرسال التقرير إلى الرتب العليا والمناصب؟"))return;
+  try{
+    await db.collection("reports").add({wid:id,name:w.name,crime:w.crime,report:w.report,arrested:!!w.arrested,verdict:!!w.verdict,exec:!!w.exec,by:V.name||"",at:Date.now()});
+    await db.doc("wan/"+id).update({sentSig:sig(w),sentAt:Date.now()});
+    msg("✔ تم إرسال التقرير");
+  }catch(e){msg("تعذّر الإرسال ("+(e.code||"")+")")}
+}
+function renderRep(){
+  const a=A(),b=document.querySelector('nav [data-t="rep"]'),el=$("l_rep");
+  if(!canAny(a)){b.textContent="📨 التقارير";el.innerHTML=`<div class="card">🔒 التقارير المرسلة تظهر للرتب العليا (عميد فما فوق) وأصحاب المناصب والملّاك فقط.</div>`;return}
+  const l=S.rep.slice().sort((x,y)=>y.at-x.at);
+  b.textContent=`📨 التقارير (${l.length})`;
+  el.innerHTML=`<div class="grid">`+(l.map(r=>`<div class="card"><div class="row" style="justify-content:space-between"><b>${E(r.name)}</b><span class="badge">${E(r.crime)}</span></div>
+   <div class="row" style="margin:8px 0">${stBadges(r)}</div>
+   <div style="padding:10px;border-radius:10px;background:#000;border:1px solid var(--line)"><b>📋 ما الذي فعله؟</b><div class="mut" style="margin-top:4px;white-space:pre-wrap">${E(r.report)}</div></div>
+   <div class="mut" style="margin-top:8px">أرسله: ${E(r.by)} · ${new Date(r.at).toLocaleString("ar-SA")}</div></div>`).join("")||`<p class="mut">لا توجد تقارير مرسلة بعد</p>`)+`</div>`;
+}
+function renderPos(){
+  const who=(p,s)=>S.off.filter(o=>o.pos===p&&(!s||o.sector===s)).map(o=>E(o.name)).join("، ")||"شاغر";
+  const sec=s=>`<div class="card" style="border-top:3px solid ${SEC[s].c}"><b style="color:${SEC[s].c}">${SEC[s].n}</b><p class="mut">قائد: ${who(4,s)}<br>نائب: ${who(5,s)}<br>مستشار: ${who(6,s)}</p></div>`;
+  $("l_pos").innerHTML=`<div class="card"><b>🏛️ الهيكل القيادي</b><p class="mut">وزير الداخلية: ${who(1)}<br>قائد الشرطة: ${who(2)}<br>نائب قائد الشرطة: ${who(3)}</p></div>
+  <div class="grid">${sec("FBI")}${sec("SSF")}</div>
+  <div class="card"><b>الصلاحيات</b><p class="mut">• OWNER: وحده يضيف الأسماء واليونتات وله كل الصلاحيات.<br>• وزير الداخلية: تحكم كامل بكل الشرطة (تعيين، نقل، ترقية، فصل، سجن).<br>• قائد الشرطة: نفس صلاحيات الوزير عدا الوزير.<br>• نائب قائد الشرطة: يتحكم بكل من هم دونه.<br>• القطاعات (FBI وSSF): الرتب من جندي إلى نقيب، والقيادة (قائد القطاع، نائب القائد، المستشار) تحل محل الرتب العليا، ولا يمكن الترقية فوق نقيب.<br>• قائد القطاع: يفصل ويوقف ويرقي (حتى نقيب) وينقل ويعين داخل قطاعه فقط.<br>• عميد فما فوق: فصل وتوقيف الرتب الأقل من الأفراد العاديين.<br>التعيين من بطاقة الفرد (قائمة "تعيين منصب").</p></div>`;
+}
+async function renderOwners(){
+  if(!A().own){$("l_own").innerHTML="";return}
+  let ps={};try{ps=S.owners.length?await user.profiles(S.owners):{}}catch(e){}
+  $("l_own").innerHTML=`<div class="card"><b>👑 الملّاك (OWNER)</b><div class="row" style="margin-top:8px"><span class="badge owner">${E(V.isOwner?V.name:"مالك الموقع")} (المالك الأساسي)</span>${S.owners.map(id=>`<span class="badge owner">${E(ps[id]?.name||"مستخدم")} ${V.isOwner?`<a href="#" onclick="rmOwner('${id}');return false" style="color:var(--bad)">✖</a>`:""}</span>`).join("")}</div></div>`;
+}
+function rmOwner(id){put0("cfg/owners",{ids:S.owners.filter(x=>x!==id)})}
+
+
+/* ====== نسخة الاستضافة المستقلة: تخزين محلي بدل claude.ai ====== */
+const LS={get:k=>{try{return JSON.parse(localStorage.getItem("pol_"+k))}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem("pol_"+k,JSON.stringify(v))}catch(e){}},del:k=>{try{localStorage.removeItem("pol_"+k)}catch(e){}}};
+const subs=[],notify=()=>subs.forEach(f=>f());
+const store={get:()=>LS.get("db")||{},set:d=>{LS.set("db",d);notify()}};
+const snapDoc=p=>{const d=store.get()[p];return{id:p.split("/").pop(),exists:d!==undefined,data:()=>d}};
+const docRef=p=>({path:p,
+  get:async()=>snapDoc(p),
+  set:async d=>{const s=store.get();s[p]=d;store.set(s)},
+  update:async d=>{const s=store.get();s[p]={...(s[p]||{}),...d};store.set(s)},
+  delete:async()=>{const s=store.get();delete s[p];store.set(s)},
+  onSnapshot(next){const f=()=>next(snapDoc(p));subs.push(f);f();return()=>{}}});
+const colRef=c=>({
+  add:async d=>{const id="i"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),s=store.get();s[c+"/"+id]=d;store.set(s);return docRef(c+"/"+id)},
+  doc:id=>docRef(c+"/"+id),
+  onSnapshot(next){const f=()=>{const docs=Object.keys(store.get()).filter(k=>k.startsWith(c+"/")&&k.split("/").length===2).map(snapDoc);next({docs,size:docs.length})};subs.push(f);f();return()=>{}}});
+const DB={doc:docRef,collection:colRef};
+window.addEventListener("storage",notify);
+async function sha(t){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+const USER={
+  async search(q){return S.off.filter(o=>o.name.includes(q)).map(o=>({id:o.id,name:o.name}))},
+  async profiles(ids){const r={};ids.forEach(i=>{const o=S.off.find(x=>x.id===i);r[i]={id:i,name:o?o.name:"فرد محذوف"}});return r},
+  me(){
+    const ss=LS.get("session");
+    const offs=Object.entries(store.get()).filter(([k])=>k.startsWith("off/")).map(([k,v])=>({id:k.slice(4),...v}));
+    if(ss){
+      if(ss.id==="owner")return Promise.resolve({id:"owner",name:"المالك",isOwner:true});
+      if(ss.id==="guest")return Promise.resolve({id:"",name:"زائر",isOwner:false});
+      const o=offs.find(x=>x.id===ss.id);if(o)return Promise.resolve({id:o.id,name:o.name,isOwner:false});
+    }
+    return new Promise(res=>{
+      const has=!!LS.get("ownerhash"),m=$("modal");m.className="";
+      m.innerHTML=`<div class="box"><b>🛡️ نظام الشرطة — تسجيل الدخول</b>
+      <b>👑 المالك</b><input id="lp" type="password" placeholder="${has?"كلمة سر المالك":"اختر كلمة سر للمالك (أول مرة)"}"><button class="ok" id="lo">دخول كمالك</button>
+      <b>👮 دخول كفرد</b><select id="ls">${offs.map(o=>`<option value="${o.id}">${E(o.name)}</option>`).join("")||"<option value=''>لا يوجد أفراد بعد</option>"}</select><button id="lf">دخول</button>
+      <button id="lg">👁 دخول كزائر (اطلاع فقط)</button><div id="le" class="mut"></div></div>`;
+      const done=(id,v)=>{LS.set("session",{id});m.className="hide";m.innerHTML="";res(v)};
+      $("lo").onclick=async()=>{const p=$("lp").value;if(p.length<4){$("le").textContent="كلمة السر 4 أحرف على الأقل";return}
+        const h=await sha(p),st=LS.get("ownerhash");
+        if(!st){LS.set("ownerhash",h);done("owner",{id:"owner",name:"المالك",isOwner:true})}
+        else if(st===h)done("owner",{id:"owner",name:"المالك",isOwner:true});
+        else $("le").textContent="كلمة السر غير صحيحة"};
+      $("lf").onclick=()=>{const o=offs.find(x=>x.id===$("ls").value);if(o)done(o.id,{id:o.id,name:o.name,isOwner:false})};
+      $("lg").onclick=()=>done("guest",{id:"",name:"زائر",isOwner:false});
+    });
+  }
+};
+function logout(){LS.del("session");location.reload()}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+  ["off","wan","rep","pos","fbi","ssf"].forEach(t=>$(t).classList.toggle("hide",t!==b.dataset.t));
+});
+(async()=>{
+  db=DB;user=USER;
+  if(!db||!user){$("msg").innerHTML=`<div class="msg">سجّل دخولك في claude.ai لفتح النظام.</div>`;return}
+  V=await user.me();myId=V.id||"";ready=true;
+  const err=e=>msg("تعذّر تحميل البيانات ("+(e.code||"")+")");
+  db.collection("off").onSnapshot(s=>{S.off=s.docs.map(d=>({id:d.id,...d.data()}));renderAll()},err);
+  db.collection("wan").onSnapshot(s=>{S.wan=s.docs.map(d=>({id:d.id,...d.data()}));renderAll()},err);
+  db.collection("reports").onSnapshot(s=>{S.rep=s.docs.map(d=>({id:d.id,...d.data()}));renderAll()},err);
+  db.doc("cfg/owners").onSnapshot(s=>{S.owners=(s.exists&&s.data().ids)||[];renderAll()},err);
+  renderAll();
+})();
+</script>
+</body>
+</html>
